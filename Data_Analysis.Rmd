@@ -1,0 +1,121 @@
+---
+title: "Kallisto_Data_Anaalysis"
+author: "Lucy"
+date: "2026-02-14"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+```
+#Set work directory and load files to the objects
+```{r}
+setwd("/Users/lucy/Desktop/MDGE610/")
+dirs <- c("default", 
+          list.files(pattern = "^alpha_", full.names = FALSE),
+          list.files(pattern = "^iteration_", full.names = FALSE))
+```
+
+```{r}
+true_counts <- read_table("sim_true_counts.txt", show_col_types = FALSE)
+
+true_counts_clean <- true_counts %>%
+  mutate(target_id = sub("\\|.*", "", transcript_id)) %>%
+  select(target_id, est_counts = true_counts)
+
+abundance_list[["true_counts"]] <- true_counts_clean
+
+head(abundance_list$true_counts)
+```
+
+#extract target_id and est_counts from abundance.tsv files
+```{r}
+abundance_list <- list()
+for (dir in dirs) {
+  abundance_file <- file.path(dir, "abundance.tsv")
+  
+  if (file.exists(abundance_file)) {
+    abundance_data <- read_tsv(abundance_file, show_col_types = FALSE)
+    
+    processed_data <- abundance_data %>%
+      mutate(target_id = sub("\\|.*", "", target_id)) %>%
+      select(target_id, est_counts)
+    
+    abundance_list[[dir]] <- processed_data
+    
+    cat("Processed successfully:", dir, "\n")
+  } else {
+    warning(paste("Skipping - File not found:", abundance_file))
+  }
+}
+```
+
+```{r}
+accuracy_summary <- data.frame(
+  Experiment = character(),
+  Total_Absolute_Error = numeric(),
+  Correlation_Percentage = numeric(),
+  stringsAsFactors = FALSE
+)
+
+
+for (name in names(abundance_list)) {
+  comparison <- true_counts_clean %>%
+    inner_join(abundance_list[[name]], by = "target_id") %>%
+    rename(truth = est_counts.x, estimate = est_counts.y)
+  
+  total_err <- sum(abs(comparison$truth - comparison$estimate), na.rm = TRUE)
+  
+  acc_percent <- cor(comparison$truth, comparison$estimate) * 100
+  
+  accuracy_summary <- rbind(accuracy_summary, data.frame(
+    Experiment = name,
+    Total_Absolute_Error = total_err,
+    Correlation_Percentage = paste0(round(acc_percent, 2), "%")
+  ))
+}
+
+accuracy_summary <- accuracy_summary %>%
+  arrange(desc(Correlation_Percentage))
+
+
+write_csv(accuracy_summary, "kallisto_accuracy_report.csv")
+
+print(accuracy_summary)
+```
+
+
+```{r}
+base_data <- true_counts_clean %>% select(target_id, true_count = est_counts)
+
+sheet_counts <- base_data
+
+for (name in names(abundance_list)) {
+  exp_counts <- abundance_list[[name]] %>% 
+    select(target_id, !!name := est_counts)
+  
+  sheet_counts <- left_join(sheet_counts, exp_counts, by = "target_id")
+}
+sheet_counts[is.na(sheet_counts)] <- 0
+
+sheet_deltas <- base_data %>% select(target_id)
+
+for (name in names(abundance_list)) {
+  exp_delta <- abundance_list[[name]] %>%
+    inner_join(base_data, by = "target_id") %>%
+    mutate(!!paste0("delta_", name) := abs(true_count - est_counts)) %>%
+    select(target_id, contains("delta_"))
+  
+  sheet_deltas <- left_join(sheet_deltas, exp_delta, by = "target_id")
+}
+sheet_deltas[is.na(sheet_deltas)] <- 0
+
+write_csv(sheet_counts, "kallisto_counts_comparison.csv")
+write_csv(sheet_deltas, "kallisto_deltas_comparison.csv")
+
+cat("Sheet 1 (Counts) Dimensions:", dim(sheet_counts), "\n")
+cat("Sheet 2 (Deltas) Dimensions:", dim(sheet_deltas), "\n")
+```
+
