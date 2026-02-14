@@ -98,9 +98,9 @@ struct EMAlgorithm {
     assert(weight_map_.size() <= counts_.size());
 
     double denom;
-    const double alpha_limit = 1e-3;
+    const double alpha_limit = 1e-7;
     const double alpha_change_limit = 1e-2;
-    const double alpha_change = 1e-2;
+    const double alpha_change = 1e-5;
     bool finalRound = false;
 
     if (verbose) {
